@@ -30,7 +30,8 @@ function getreqsngrep() {
 }
 
 print_usage() {
-    printf "%s %s\n" "Usage: {OPTIONS} "
+    printf "%s %s\n" "Version: ${VERSION}"
+    printf "%s %s\n" "Usage: ${OPTIONS} "
     printf "%s\n" "OPTIONS"
     printf "%s\n" "-d = device name / user@ip_address (Works better with keys copied first)"
     printf "%s\n" "-i = device ethernet port to capure form (Default: any)"

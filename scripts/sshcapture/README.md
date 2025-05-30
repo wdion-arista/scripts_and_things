@@ -1,13 +1,13 @@
 # sshcapture
 
-### Description:
-    The easy way to capture remotely via ssh. This script builds a tunnel over ssh and captures it to a file. you cna then use wireshark locally to read the capture. you will need to refresh the wireshark stream to get new capture data.
+### Description
+The easy way to capture remotely via ssh. This script builds a tunnel over ssh and captures it to a file. you cna then use wireshark locally to read the capture. you will need to refresh the wireshark stream to get new capture data.
 
 ## Caution! 🔴
 **This will capture anything you are filtering so make sure you have enough bandwidth to handle the capture.**
 
 ### Installation
-    copy to your /usr/local/bin/ folder
+
 ``` bash
 wget https://https://github.com/wdion-arista/scripts_and_things/scripts/sshcapture/sshcapture -O /usr/bin/sshcapture \
 && chmod +x /usr/bin/sshcapture
