@@ -1,0 +1,109 @@
+#!/bin/bash
+# * Copyright (C) 2025 Tech-eh
+# * All Rights Reserved.
+# *
+# * Author(s)
+# * Westley Dion <westley.dion@arista.com>
+# *
+# * version 1.0
+# *
+# *
+# ****
+
+
+VERSION="1.0"
+
+function getreqsngrep() {
+    if ! [ -x "$(command -v sngrep)" ]
+    then
+        echo 'Error: sngrep needed for sipcapture to work please install package".' >&2
+        echo 'NOTE: How to install SNGREP'
+        echo 'https://github.com/irontec/sngrep'
+        echo -e 'Debian container bullseye\n'
+        echo 'echo "deb http://packages.irontec.com/debian bullseye main" | sudo tee -a  /etc/apt/sources.list'
+        echo 'sudo wget http://packages.irontec.com/public.key -q -O /etc/apt/trusted.gpg.d/irontec-debian-repository.asc'
+        echo 'sudo apt-get update && sudo apt-get install sngrep -y'
+        echo 'test:' 
+        echo 'sudo sngrep'
+        exit 1
+    fi
+}
+
+print_usage() {
+    printf "%s %s\n" "Usage: {OPTIONS} "
+    printf "%s\n" "OPTIONS"
+    printf "%s\n" "-d = device name / user@ip_address (Works better with keys copied first)"
+    printf "%s\n" "-i = device ethernet port to capure form (Default: any)"
+    printf "%s\n" "-p = ports 'port 5090 or port 5092' or 'portrange 5060-5091' (Default: all)"
+    printf "%s\n" "-s = use sngrep to view sip captures(needs sngrep isntalled)"
+    printf "\n%s\n\n" "Example:"
+    printf "%s\n" "sshcapture -d username@10.1.1.100 -i eth1 -p 'port 5060'"
+    printf "%s\n\n" ""
+}
+
+devicename="none"
+writetofileonly="false"
+sngrep="false"
+deviceport=""
+deviceinterface="any"
+
+# Argument Check
+while getopts 'd:p:i:swh' flag; do
+    case "${flag}" in
+        d) devicename="${OPTARG}" ;;
+        p) deviceport="${OPTARG}" ;;
+        i) deviceinterface="${OPTARG}" ;;
+        s) sngrep="true"
+            getreqsngrep
+            deviceport="portrange 5060-5091";;
+        # w) writetofileonly='true' ;;
+        
+        # base flags
+        h) print_usage
+        exit 1 ;;
+        *)
+            printf "%s\n" "No input"
+        exit 1 ;;
+        
+    esac
+done
+
+if [ $OPTIND -eq 1 ];
+then
+    printf "%s\n" "No options were passed";
+    print_usage;
+    exit 1
+fi
+
+if [[ $devicename == 'none' ]]
+then
+    echo "need a device"
+    exit 1
+fi
+
+function cleanup ()
+{
+    find ./captures/${devicename} -type p -delete
+    echo "
+    Feeling lucky.. Punk?"
+    kill 0
+}
+#trap cleanup INT TERM ERR
+#trap "kill 0" EXIT
+trap cleanup EXIT
+
+time_now="$(date +"%Y_%m_%d_%I_%M_%p")"
+find ./captures/${1}* -type p -delete
+
+mkdir -p ./captures
+if [[ $sngrep == 'true' ]]
+then
+    mkfifo ./captures/${devicename}
+    ssh ${devicename} "sudo tcpdump -s 0 -U -n -w - -i ${deviceinterface} ${deviceport}" >  ./captures/${devicename}  &
+    sngrep -I ./captures/${devicename}
+    echo "CONTROL-C to EXIT"
+    wait
+else
+    echo "Writing to file"
+    ssh ${devicename} "sudo tcpdump -s 0 -U -n -w - -i ${deviceinterface} ${deviceport}" >  ./captures/${devicename}_${time_now}.pcap
+fi
