@@ -1,0 +1,270 @@
+#!/usr/bin/env python
+# PYTHON_ARGCOMPLETE_OK
+import argcomplete
+import os
+import argparse
+import zipfile
+import re
+from datetime import datetime
+import gzip
+
+
+
+def extract_and_gunzip_latest_tech_support_log(zip_filepath, target_dir_in_zip="mnt/flash/schedule/tech-support/", output_tmp_dir="/tmp", specific_tech_file=None):
+    """
+    Identifies the latest .log.gz file or a specific named .log.gz file
+    in a specific directory within a zip file, extracts it, and then gunzips it
+    to a temporary directory.
+
+    Args:
+        zip_filepath (str): The path to the support-bundle.zip file.
+        target_dir_in_zip (str): The directory path within the zip file to search.
+                            (e.g., 'mnt/flash/schedule/tech-support/')
+        output_tmp_dir (str): The local directory where the extracted and decompressed
+                            file will be saved (defaults to /tmp).
+        specific_tech_file (str, optional): If provided, the function will attempt
+                                            to extract and gunzip this exact file
+                                            (e.g., "device_name_tech-support_2025-07-24.0819.log.gz").
+                                            It must be a filename, not a full path.
+                                            If None, the latest file by date will be found.
+    """
+    # Ensure the target directory path within the zip has a trailing slash for accurate matching
+    if not target_dir_in_zip.endswith('/'):
+        target_dir_in_zip += '/'
+
+    decompressed_filepath_tmp = None # Initialize the return variable
+
+    # Check if the provided zip file exists on the filesystem
+    if not os.path.exists(zip_filepath):
+        print(f"Error: Zip file '{zip_filepath}' not found. Please ensure the path is correct.")
+        return None
+
+    # Create the temporary output directory if it doesn't exist
+    os.makedirs(output_tmp_dir, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(zip_filepath, 'r') as zf:
+            latest_file_in_zip_path = None # This will store the full path of the file to be processed within the zip
+
+            if specific_tech_file:
+                # User provided a specific file name, so we use it directly
+                # Construct the full path within the zip file for validation
+                candidate_full_path_in_zip = os.path.join(target_dir_in_zip, specific_tech_file).replace(os.sep, '/')
+                
+                print(f"\n--- Checking for specific file: '{specific_tech_file}' (expected path: '{candidate_full_path_in_zip}') inside '{zip_filepath}' ---")
+                
+                if candidate_full_path_in_zip in zf.namelist():
+                    latest_file_in_zip_path = candidate_full_path_in_zip
+                    print(f"Specific file '{specific_tech_file}' found in zip.")
+                else:
+                    print(f"Error: Specific file '{specific_tech_file}' not found within '{target_dir_in_zip}' inside '{zip_filepath}'.")
+                    return None # Exit if the specific file isn't found
+            else:
+                # No specific file provided, so find the latest based on date
+                log_file_pattern = re.compile(r'_(\d{4}-\d{2}-\d{2})\.(\d{4})\.log\.gz$')
+                latest_file_info = None # Stores (datetime_object, full_filepath_in_zip)
+
+                print(f"\n--- Searching for latest .log.gz in '{target_dir_in_zip}' inside '{zip_filepath}' ---")
+                
+                for entry_name in zf.namelist():
+                    # Check if the entry is a file, starts with the target directory, and ends with .log.gz
+                    if entry_name.startswith(target_dir_in_zip) and entry_name.endswith('.log.gz') and not entry_name.endswith('/'):
+                        match = log_file_pattern.search(entry_name)
+                        if match:
+                            date_str = match.group(1) # YYYY-MM-DD
+                            time_str = match.group(2) # HHMM
+
+                            # Construct datetime string as 'YYYY-MM-DD HH:MM'
+                            datetime_full_str = f"{date_str} {time_str[0:2]}:{time_str[2:4]}"
+                            
+                            try:
+                                file_datetime = datetime.strptime(datetime_full_str, '%Y-%m-%d %H:%M')
+                                
+                                if latest_file_info is None or file_datetime > latest_file_info[0]:
+                                    latest_file_info = (file_datetime, entry_name)
+                                    print(f"  Found potential latest: {entry_name} (Date: {file_datetime})")
+                            except ValueError:
+                                print(f"  Warning: Could not parse date/time from filename: {entry_name}")
+                        else:
+                            print(f"  Skipping: '{entry_name}' does not match expected log file pattern.")
+
+                if latest_file_info:
+                    latest_file_in_zip_path = latest_file_info[1]
+                    print(f"\n--- Identified latest file: '{latest_file_in_zip_path}' ---")
+                else:
+                    print(f"No .log.gz files matching the pattern found in '{target_dir_in_zip}'.")
+                    return None # Exit if no latest file is found
+
+            # --- Common extraction and decompression logic ---
+            # This part executes if either a specific file was found or the latest was identified.
+            if latest_file_in_zip_path:
+                extracted_filename = os.path.basename(latest_file_in_zip_path)
+                extracted_filepath_tmp = os.path.join(output_tmp_dir, extracted_filename)
+
+                print(f"Extracting '{latest_file_in_zip_path}' to '{extracted_filepath_tmp}'...")
+                with zf.open(latest_file_in_zip_path) as source, open(extracted_filepath_tmp, 'wb') as target:
+                    target.write(source.read())
+                print(f"File extracted successfully.")
+
+                if extracted_filepath_tmp.endswith('.gz'):
+                    decompressed_filename = extracted_filename.replace('.gz', '')
+                    decompressed_filepath_tmp = os.path.join(output_tmp_dir, decompressed_filename)
+                    
+                    print(f"Decompressing '{extracted_filepath_tmp}' to '{decompressed_filepath_tmp}'...")
+                    with gzip.open(extracted_filepath_tmp, 'rb') as gz_file:
+                        with open(decompressed_filepath_tmp, 'wb') as output_file:
+                            output_file.write(gz_file.read())
+                    print(f"File decompressed successfully. Saved as '{decompressed_filepath_tmp}'")
+                    
+                    # Optionally, remove the .gz file after decompression
+                    os.remove(extracted_filepath_tmp)
+                    print(f"Removed temporary compressed file '{extracted_filepath_tmp}'.")
+                else:
+                    print(f"File '{extracted_filepath_tmp}' is not a .gz file, skipping decompression.")
+                    # If it's not .gz, the extracted_filepath_tmp is already the final uncompressed one
+                    decompressed_filepath_tmp = extracted_filepath_tmp # Assign it directly
+            else:
+                print("No file was selected for extraction/decompression.") # Should be caught by earlier returns
+                return None
+
+    except zipfile.BadZipFile:
+        print(f"Error: '{zip_filepath}' is not a valid zip file or is corrupted.")
+        return None
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        return None
+    
+    return decompressed_filepath_tmp
+
+
+
+def list_files_in_tech_support_zip(zip_filepath):
+    """
+    Lists all files within the '/mnt/flash/schedule/tech-support/' directory
+    inside a given zip file.
+
+    Args:
+        zip_filepath (str): The path to the support-bundle.zip file.
+                            This file is expected to contain a directory structure
+                            like 'mnt/flash/schedule/tech-support/'.
+    """
+    # Define the target directory path within the zip file.
+    # It's important to include the trailing slash to correctly identify contents *within* this folder.
+    target_dir_in_zip = "mnt/flash/schedule/tech-support/"
+    found_files = []
+
+    # Check if the provided zip file exists on the filesystem
+    if not os.path.exists(zip_filepath):
+        print(f"Error: Zip file '{zip_filepath}' not found. Please ensure the path is correct.")
+        return
+
+    try:
+        # Open the zip file in read mode ('r')
+        with zipfile.ZipFile(zip_filepath, 'r') as zf:
+            print(f"\n--- Listing contents of '{target_dir_in_zip}' inside '{zip_filepath}' ---")
+            
+            # Iterate through all entries (files and directories) within the zip file
+            for entry in zf.namelist():
+                # Check if the entry starts with our target directory path
+                # and is not the directory itself (i.e., not just 'mnt/flash/schedule/tech-support/')
+                # and is not a directory (does not end with '/').
+                if entry.startswith(target_dir_in_zip) and entry != target_dir_in_zip and not entry.endswith('/'):
+                    found_files.append(entry)
+                    print(f"  - {entry}") # Print the full path of the found file
+        
+        # Provide a message if no files were found
+        if not found_files:
+            print(f"No files found in '{target_dir_in_zip}' within '{zip_filepath}'.")
+        else:
+            print(f"\nSuccessfully listed {len(found_files)} file(s) from '{target_dir_in_zip}'.")
+
+    except zipfile.BadZipFile:
+        print(f"Error: '{zip_filepath}' is not a valid zip file or is corrupted.")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
+
+def extract_running_config(input_filename, output_filename="running-config.txt"):
+    """
+    Extracts content between specific start and end markers from a text file.
+
+    Args:
+        input_filename (str): The path to the large text file.
+        output_filename (str): The name of the file to save the extracted content to.
+    """
+    # start_marker = "------------- show running-config sanitized -------------"
+    start_marker = "> show tech-support"
+    end_marker = "end"
+    
+    # end_marker = "------------- show clock -------------"
+    
+    recording = False
+    extracted_lines = []
+
+    try:
+        with open(input_filename, 'r') as infile:
+            for line in infile:
+                if start_marker in line.strip():
+                    recording = True
+                    continue  # Do not include the start marker line
+
+                if recording:
+                    extracted_lines.append(line)
+
+                if end_marker == line.strip():
+                    recording = False
+                    break  # Stop recording and exit loop, do not include the end marker line
+        
+        if not extracted_lines and not recording:
+            print(f"Warning: No content found between '{start_marker}' and '{end_marker}'. "
+                    f"Please check if the markers exist in '{input_filename}'.")
+
+        with open(output_filename, 'w') as outfile:
+            outfile.writelines(extracted_lines)
+        
+        print(f"Successfully extracted content and saved to '{output_filename}'")
+
+    except FileNotFoundError:
+        print(f"Error: The input file '{input_filename}' was not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+# --- How to use the script ---
+# 1. Replace 'your_large_text_file.txt' with the actual name of your large text file.
+# 2. Make sure the input file is in the same directory as this script, or provide the full path.
+
+
+def main():
+    parser = argparse.ArgumentParser(description="A script to extract support-bundle running-config")
+
+    # Positional arguments
+    parser.add_argument("--support_bundle", type=str, help="The support-bundle.zip name")
+    parser.add_argument("--show_tech", type=str, help="Teh show tech-filename. it can be the name in the zip or if only this command is used it will check a showtech log directly.")
+    parser.add_argument("--running_config_name", type=str, default="running-config", help="The name of the output running-config filename.")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output.")
+    args = parser.parse_args()
+    argcomplete.autocomplete(parser)
+    if args.verbose:
+        print(f"Running in verbose mode.")
+        print(f"Support Bundle filename: {args.support_bundle}")
+        print(f"Show tech filename: {args.show_tech}")
+
+    # Use os.path.split to separate the directory and the filename
+    inv_directory, inv_filename = os.path.split(f'{args.show_tech}')
+    if args.support_bundle:
+        SUPPORT_BUNDLE_NAME = f'{args.support_bundle}'
+        list_files_in_tech_support_zip(SUPPORT_BUNDLE_NAME)
+        if args.show_tech:
+            show_tech_filename = extract_and_gunzip_latest_tech_support_log(SUPPORT_BUNDLE_NAME, target_dir_in_zip="mnt/flash/schedule/tech-support/", output_tmp_dir=".", specific_tech_file=args.show_tech)
+        else:
+            show_tech_filename = extract_and_gunzip_latest_tech_support_log(SUPPORT_BUNDLE_NAME, target_dir_in_zip="mnt/flash/schedule/tech-support/", output_tmp_dir=".")
+        extract_running_config(show_tech_filename,args.running_config_name)
+    if args.show_tech:
+        SHOWTECH_FILENAME = f'{args.show_tech}'
+        extract_running_config(SHOWTECH_FILENAME,args.running_config_name)
+
+
+    # Define file paths based on arguments and PROJECT_NAME
+
+if __name__ == "__main__":
+    main()

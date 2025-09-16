@@ -10,7 +10,7 @@ The easy way to capture remotely via ssh. This script builds a tunnel over ssh a
 
 ``` bash
 wget sudo wget https://raw.githubusercontent.com/wdion-arista/scripts_and_things/refs/heads/main/scripts/sshcapture/sshcapture -O /usr/bin/sshcapture -O /usr/bin/sshcapture \
-&& chmod +x /usr/bin/sshcapture
+&& sudo chmod +x /usr/bin/sshcapture
 ```
 ``` bash
 ❯ sshcapture
