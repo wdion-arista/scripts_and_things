@@ -1,0 +1,5 @@
+switch	interface	description	vlans-vlans	portProfile	enabled	vlans-nativeVlan
+SWITCH1	1	PC1	10	ACCESS-VLAN10-TECH	Yes	101
+SWITCH1	3	PC2	14	ACCESS-VLAN14-OPS	Yes	
+SWITCH1	4					
+SWITCH1	5	PC3	10	ACCESS-VLAN10-TECH	Yes	
